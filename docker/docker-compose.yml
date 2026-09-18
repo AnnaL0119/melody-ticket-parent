@@ -1,0 +1,254 @@
+version: '3.8'
+
+services:
+  # ==================== MySQL ====================
+  mysql:
+    image: mysql:8.0
+    container_name: melody-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - melody-net
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: melody-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - melody-net
+
+  # ==================== Nacos ====================
+  nacos:
+    image: nacos/nacos-server:v2.3.2
+    container_name: melody-nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: root
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    networks:
+      - melody-net
+
+  # ==================== Seata Server ====================
+  seata-server:
+    image: seataio/seata-server:${SEATA_VERSION}
+    container_name: melody-seata
+    environment:
+      SEATA_IP: seata-server
+      SEATA_PORT: ${SEATA_SERVER_PORT}
+      STORE_MODE: db
+      REGISTRY_TYPE: nacos
+      CONFIG_TYPE: nacos
+    ports:
+      - "${SEATA_SERVER_PORT}:${SEATA_SERVER_PORT}"
+      - "7091:7091"
+    volumes:
+      - ./seata/registry.conf:/seata-server/resources/registry.conf
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - melody-net
+
+  # ==================== Sentinel Dashboard ====================
+  sentinel-dashboard:
+    image: bladex/sentinel-dashboard:1.8.6
+    container_name: melody-sentinel
+    ports:
+      - "${SENTINEL_DASHBOARD_PORT}:${SENTINEL_DASHBOARD_PORT}"
+    environment:
+      SENTINEL_DASHBOARD_PORT: ${SENTINEL_DASHBOARD_PORT}
+    networks:
+      - melody-net
+
+  # ==================== SkyWalking OAP ====================
+  oap:
+    image: apache/skywalking-oap-server:9.7.0
+    container_name: melody-oap
+    environment:
+      SW_STORAGE: ${SW_STORAGE}
+      SW_JDBC_URL: ${SW_JDBC_URL}
+      SW_DATA_SOURCE_USER: ${SW_DATA_SOURCE_USER}
+      SW_DATA_SOURCE_PASSWORD: ${SW_DATA_SOURCE_PASSWORD}
+      SW_HEALTH_CHECKER: default
+      SW_TELEMETRY: prometheus
+    ports:
+      - "11800:11800"
+      - "12800:12800"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12800/internal/healthCheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - melody-net
+
+  # ==================== SkyWalking UI ====================
+  ui:
+    image: apache/skywalking-ui:9.7.0
+    container_name: melody-sw-ui
+    environment:
+      SW_OAP_ADDRESS: oap:12800
+    ports:
+      - "${SW_UI_PORT}:8080"
+    depends_on:
+      oap:
+        condition: service_healthy
+    networks:
+      - melody-net
+
+  # ==================== user-service ====================
+  user-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.user-service
+    container_name: melody-user-service
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_SERVER_ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/melody_user?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD: sentinel-dashboard:8010
+      SEATA_REGISTRY_NACOS_SERVER_ADDR: nacos:8848
+      SEATA_CONFIG_NACOS_SERVER_ADDR: nacos:8848
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      seata-server:
+        condition: service_started
+    networks:
+      - melody-net
+
+  # ==================== concert-service ====================
+  concert-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.concert-service
+    container_name: melody-concert-service
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/melody_concert?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD: sentinel-dashboard:8010
+      SEATA_REGISTRY_NACOS_SERVER_ADDR: nacos:8848
+      SEATA_CONFIG_NACOS_SERVER_ADDR: nacos:8848
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      seata-server:
+        condition: service_started
+    networks:
+      - melody-net
+
+  # ==================== ticket-service ====================
+  ticket-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ticket-service
+    container_name: melody-ticket-service
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/melody_ticket?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD: sentinel-dashboard:8010
+      SEATA_REGISTRY_NACOS_SERVER_ADDR: nacos:8848
+      SEATA_CONFIG_NACOS_SERVER_ADDR: nacos:8848
+    ports:
+      - "8083:8083"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      seata-server:
+        condition: service_started
+    networks:
+      - melody-net
+
+  # ==================== Gateway (web-client) ====================
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web-client
+    container_name: melody-gateway
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
+      SPRING_CLOUD_SENTINEL_TRANSPORT_DASHBOARD: sentinel-dashboard:8010
+    ports:
+      - "${GATEWAY_PORT}:8080"
+    depends_on:
+      nacos:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      concert-service:
+        condition: service_started
+      ticket-service:
+        condition: service_started
+    networks:
+      - melody-net
+
+networks:
+  melody-net:
+    driver: bridge
+
+volumes:
+  mysql-data:

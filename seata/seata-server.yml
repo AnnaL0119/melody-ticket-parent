@@ -1,0 +1,72 @@
+# Seata Server 配置 (seata-server 1.7.0)
+server:
+  port: 7091
+
+seata:
+  # 服务端配置
+  server:
+    service-port: 8091
+    max-commit-retry-timeout: -1
+    max-rollback-retry-timeout: -1
+    rollback-retry-timeout-unlock-enable: false
+    enable-check-auth: true
+    xaer-nota-retry-timeout: 60000
+    session:
+      branch-async-queue-size: 5000
+      enable-branch-async-remove: false
+
+  # 安全配置（密钥通过环境变量注入，不入库）
+  security:
+    secret-key: ${SEATA_SECRET_KEY}
+    token: ${SEATA_TOKEN:seata-token}
+    exclude-branch-patterns: ".*"
+
+  # 存储配置（使用MySQL）
+  store:
+    mode: db
+    db:
+      datasource: druid
+      db-type: mysql
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/seata?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      user: root
+      password: ${MYSQL_PASSWORD}
+      min-conn: 5
+      max-conn: 100
+      global-table: global_table
+      branch-table: branch_table
+      lock-table: lock_table
+      distributed-lock-table: distributed_lock
+      query-limit: 100
+      max-wait: 5000
+
+  # Nacos 注册中心
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: localhost:8848
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      namespace: ""
+      group: SEATA_GROUP
+      cluster: default
+
+  # Nacos 配置中心
+  config:
+    type: nacos
+    nacos:
+      server-addr: localhost:8848
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      namespace: ""
+      group: SEATA_GROUP
+      dataId: seata-server.properties
+
+logging:
+  config: classpath:logback-spring.xml
+  file:
+    path: ./logs/seata
+  level:
+    io.seata: info
+    com.alibaba.seata: info

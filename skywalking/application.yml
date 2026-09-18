@@ -1,0 +1,93 @@
+# SkyWalking 9.7.0 服务端配置（使用 MySQL 存储）
+# 将此文件放置于 skywalking-apm/config/ 目录下
+
+cluster:
+  # 单节点模式
+  standalone:
+
+# 核心配置
+core:
+  default:
+    # 混合角色：同时接收代理数据和提供UI查询
+    role: mixed
+    # OAP 服务端口
+    restHost: 0.0.0.0
+    restPort: 12800
+    restMinThreads: 64
+    restMaxThreads: 128
+    restIdleTimeOut: 60000
+    gRPCHost: 0.0.0.0
+    gRPCPort: 11800
+    gRPCMaxMessageSize: 4194304
+    gRPCMaxConcurrentCalls: 1024
+    # 数据保留天数
+    recordDataTTL: 3
+    minuteMetricsDataTTL: 7
+    hourMetricsDataTTL: 10
+    dayMetricsDataTTL: 90
+    monthMetricsDataTTL: 18
+    # 最大告警数量
+    maxAlarmCount: 50
+
+# 存储配置 - MySQL
+storage:
+  selector: ${SW_STORAGE:mysql}
+  mysql:
+    properties:
+      jdbcUrl: ${SW_JDBC_URL:"jdbc:mysql://localhost:3306/sw_skywalking?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true&allowMultiQueries=true"}
+      dataSource.user: ${SW_DATA_SOURCE_USER:root}
+      dataSource.password: ${SW_DATA_SOURCE_PASSWORD}
+      dataSource.cachePrepStmts: true
+      dataSource.prepStmtCacheSize: 250
+      dataSource.prepStmtCacheSqlLimit: 2048
+      dataSource.useServerPrepStmts: true
+      dataSource.useSSL: false
+    metadataQueryMaxSize: 5000
+    maxSizeOfArrayColumn: 20
+    numOfSearchableMetricsTags: 10
+    # MySQL 表每批次插入数量
+    maxBatchSize: 5000
+    # 并发获取连接数
+    concurrentMaxSize: 10
+    # 表初始化 SQL 执行超时
+    tableInitializeTimeout: 600000
+
+# 接收器配置
+receiver-sharing:
+  default:
+    # 接收器选择器
+    selector: ${SW_RECEIVER_SHARING:default}
+
+receiver-register:
+  default:
+
+receiver-trace:
+  default:
+    sampleRate: ${SW_TRACE_SAMPLE_RATE:10000}  # 100% 采样
+    slowDBAccessThreshold: ${SW_SLOW_DB_THRESHOLD:500}
+    # 忽略特定路径
+    ignorePath: /health
+
+receiver-jvm:
+  default:
+
+receiver-profile:
+  default:
+
+receiver-log:
+  default:
+    # 日志分析
+    enable: true
+    maxStringLength: 1000
+
+receiver-alarm:
+  default:
+    enable: true
+    alarmSettingsFile: alarm-settings.yml
+    # Webhook 回调地址（告警时发送到本项目的webhook接收接口）
+    webhooks:
+      - http://gateway:8080/skywalking/alarm
+
+# 导出器配置
+exporter:
+  # 无导出

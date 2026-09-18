@@ -1,0 +1,19 @@
+FROM openjdk:17-jre-alpine
+
+WORKDIR /app
+
+ENV TZ=Asia/Shanghai
+
+# 创建日志目录
+RUN mkdir -p /app/logs
+
+COPY user-service/target/user-service-*.jar app.jar
+
+EXPOSE 8081
+
+# JVM 参数 + SkyWalking Agent
+ENTRYPOINT ["sh", "-c", "java \
+  -javaagent:/skywalking/agent/skywalking-agent.jar \
+  -Dskywalking.agent.service_name=user-service \
+  -Dskywalking.collector.backend_service=oap:11800 \
+  -jar app.jar"]

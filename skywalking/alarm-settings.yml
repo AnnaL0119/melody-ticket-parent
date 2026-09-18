@@ -1,0 +1,74 @@
+# SkyWalking 告警规则配置
+# 将此文件放置于 skywalking-apm/config/ 目录下
+
+rules:
+  # ==================== 服务响应时间告警 ====================
+  service_resp_time_rule:
+    # 指标名称（来自 OAL）
+    metrics-name: service_resp_time
+    # 阈值：1000ms
+    threshold: 1000
+    # 操作符：>
+    op: ">"
+    # 持续周期数：连续3个周期超过阈值则触发
+    period: 3
+    # 告警级别
+    silence-period: 5
+    message: 服务 {name} 响应时间在过去3分钟内超过1000ms，当前值 {value}ms
+
+  # ==================== 服务成功率告警 ====================
+  service_sla_rule:
+    metrics-name: service_sla
+    threshold: 80
+    op: "<"
+    period: 3
+    silence-period: 5
+    message: 服务 {name} 在过去3分钟内成功率低于80%，当前成功率 {value}%
+
+  # ==================== 服务实例响应时间告警 ====================
+  service_instance_resp_time_rule:
+    metrics-name: service_instance_resp_time
+    threshold: 2000
+    op: ">"
+    period: 2
+    silence-period: 5
+    message: 服务实例 {name} 响应时间超过2000ms
+
+  # ==================== 端点响应时间告警 ====================
+  endpoint_resp_time_rule:
+    metrics-name: endpoint_avg
+    threshold: 3000
+    op: ">"
+    period: 3
+    silence-period: 5
+    message: 端点 {name} 在过去3分钟内平均响应时间超过3000ms
+
+  # ==================== 数据库访问慢查询告警 ====================
+  database_resp_time_rule:
+    metrics-name: database_resp_time
+    threshold: 1000
+    op: ">"
+    period: 2
+    silence-period: 5
+    message: 数据库 {name} 响应时间超过1000ms
+
+  # ==================== 服务错误率告警 ====================
+  service_error_rate_rule:
+    metrics-name: service_error_rate
+    threshold: 10
+    op: ">"
+    period: 3
+    silence-period: 5
+    message: 服务 {name} 错误率超过10%
+
+# Webhook 可以在多个地方定义，这里是全局定义
+# 具体 webhooks 地址在 application.yml 的 receiver-alarm 中配置
+
+# 告警静默配置
+silence:
+  # 告警规则名
+  - alarm-rule: service_resp_time_rule
+    # 静默开始时间
+    start-time: 2026-06-14 00:00
+    # 静默结束时间
+    end-time: 2026-06-15 00:00

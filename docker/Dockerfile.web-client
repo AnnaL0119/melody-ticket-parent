@@ -1,0 +1,17 @@
+FROM openjdk:17-jre-alpine
+
+WORKDIR /app
+
+ENV TZ=Asia/Shanghai
+
+RUN mkdir -p /app/logs
+
+COPY web-client/target/web-client-*.jar app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["sh", "-c", "java \
+  -javaagent:/skywalking/agent/skywalking-agent.jar \
+  -Dskywalking.agent.service_name=gateway \
+  -Dskywalking.collector.backend_service=oap:11800 \
+  -jar app.jar"]

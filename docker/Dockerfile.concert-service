@@ -1,0 +1,17 @@
+FROM openjdk:17-jre-alpine
+
+WORKDIR /app
+
+ENV TZ=Asia/Shanghai
+
+RUN mkdir -p /app/logs
+
+COPY concert-service/target/concert-service-*.jar app.jar
+
+EXPOSE 8082
+
+ENTRYPOINT ["sh", "-c", "java \
+  -javaagent:/skywalking/agent/skywalking-agent.jar \
+  -Dskywalking.agent.service_name=concert-service \
+  -Dskywalking.collector.backend_service=oap:11800 \
+  -jar app.jar"]

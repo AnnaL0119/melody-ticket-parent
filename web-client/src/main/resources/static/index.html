@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>MelodyTicket - 旋律票务系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; color: white; margin-bottom: 30px; font-size: 2.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
+        .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        .card h2 { color: #667eea; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .concert-item { background: #f8f9fa; border-radius: 12px; padding: 15px; margin-bottom: 15px; cursor: pointer; transition: all 0.3s; }
+        .concert-item:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0,0,0,0.1); background: #e9ecef; }
+        .concert-name { font-size: 1.2rem; font-weight: bold; color: #333; }
+        .concert-singer { color: #667eea; margin: 5px 0; }
+        .concert-info { display: flex; justify-content: space-between; margin-top: 10px; color: #666; font-size: 0.9rem; }
+        .price { color: #e74c3c; font-weight: bold; font-size: 1.2rem; }
+        .stock { color: #27ae60; }
+        .btn { background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-top: 10px; transition: all 0.3s; }
+        .btn:hover { background: #5a67d8; transform: scale(1.02); }
+        .btn-buy { background: #e74c3c; width: 100%; }
+        .btn-buy:hover { background: #c0392b; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #333; font-weight: 500; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; }
+        .order-item { background: #f8f9fa; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+        .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
+        .status-0 { background: #f39c12; color: white; }
+        .status-1 { background: #27ae60; color: white; }
+        .status-2 { background: #95a5a6; color: white; }
+        .message { padding: 10px; border-radius: 8px; margin-bottom: 15px; display: none; }
+        .message.success { background: #d4edda; color: #155724; display: block; }
+        .message.error { background: #f8d7da; color: #721c24; display: block; }
+        .login-form { max-width: 400px; margin: 0 auto; }
+        .user-info { text-align: right; color: white; margin-bottom: 20px; }
+        .logout-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 5px 15px; border-radius: 20px; cursor: pointer; margin-left: 10px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🎵 MelodyTicket 旋律票务系统</h1>
+
+    <div id="userInfo" class="user-info" style="display: none;">
+        欢迎, <span id="username"></span> <button class="logout-btn" onclick="logout()">退出</button>
+    </div>
+
+    <div id="loginArea" class="card login-form">
+        <h2>用户登录</h2>
+        <div class="form-group">
+            <label>用户名</label>
+            <input type="text" id="loginUsername" placeholder="用户名">
+        </div>
+        <div class="form-group">
+            <label>密码</label>
+            <input type="password" id="loginPassword" placeholder="密码">
+        </div>
+        <button class="btn" style="width:100%" onclick="login()">登录</button>
+        <div style="text-align:center; margin-top:15px">
+            <a href="#" onclick="showRegister()">注册新账号</a>
+        </div>
+    </div>
+
+    <div id="registerArea" class="card login-form" style="display: none;">
+        <h2>用户注册</h2>
+        <div class="form-group">
+            <label>用户名</label>
+            <input type="text" id="regUsername" placeholder="用户名">
+        </div>
+        <div class="form-group">
+            <label>密码</label>
+            <input type="password" id="regPassword" placeholder="密码">
+        </div>
+        <div class="form-group">
+            <label>昵称</label>
+            <input type="text" id="regNickname" placeholder="昵称">
+        </div>
+        <div class="form-group">
+            <label>手机号</label>
+            <input type="text" id="regPhone" placeholder="手机号">
+        </div>
+        <button class="btn" style="width:100%" onclick="register()">注册</button>
+        <div style="text-align:center; margin-top:15px">
+            <a href="#" onclick="showLogin()">返回登录</a>
+        </div>
+    </div>
+
+    <div id="mainContent" style="display: none;">
+        <div id="message" class="message"></div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>🎤 正在热演</h2>
+                <div id="concertList"></div>
+            </div>
+
+            <div class="card">
+                <h2>🎫 我的订单</h2>
+                <div id="orderList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let token = null;
+    let userId = null;
+
+    function showMessage(msg, isError = false) {
+        const msgDiv = document.getElementById('message');
+        msgDiv.textContent = msg;
+        msgDiv.className = isError ? 'message error' : 'message success';
+        setTimeout(() => {
+            msgDiv.style.display = 'none';
+            msgDiv.className = 'message';
+        }, 3000);
+    }
+
+    async function login() {
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+
+        try {
+            const res = await fetch('/api/users/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (data.code === 200) {
+                token = data.data.token;
+                userId = data.data.user.id;
+                localStorage.setItem('token', token);
+                localStorage.setItem('userId', userId);
+                document.getElementById('username').textContent = data.data.user.nickname || username;
+                document.getElementById('loginArea').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+                document.getElementById('userInfo').style.display = 'block';
+                loadConcerts();
+                loadOrders();
+                showMessage('登录成功！');
+            } else {
+                showMessage(data.message, true);
+            }
+        } catch (e) {
+            showMessage('登录失败', true);
+        }
+    }
+
+    async function register() {
+        const data = {
+            username: document.getElementById('regUsername').value,
+            password: document.getElementById('regPassword').value,
+            nickname: document.getElementById('regNickname').value,
+            phone: document.getElementById('regPhone').value
+        };
+
+        try {
+            const res = await fetch('/api/users/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (result.code === 200) {
+                showMessage('注册成功，请登录！');
+                showLogin();
+            } else {
+                showMessage(result.message, true);
+            }
+        } catch (e) {
+            showMessage('注册失败', true);
+        }
+    }
+
+    async function loadConcerts() {
+        try {
+            const res = await fetch('/api/concerts');
+            const data = await res.json();
+            if (data.code === 200) {
+                const container = document.getElementById('concertList');
+                container.innerHTML = data.data.map(concert => `
+                    <div class="concert-item">
+                        <div class="concert-name">${concert.name || '演唱会'}</div>
+                        <div class="concert-singer">🎤 ${concert.singer || '待定'}</div>
+                        <div class="concert-info">
+                            <span>📍 ${concert.venue || '场馆待定'}</span>
+                            <span>📅 ${concert.showTime ? concert.showTime.substring(0,10) : '待定'}</span>
+                        </div>
+                        <div class="concert-info">
+                            <span class="price">¥${concert.price || 0}</span>
+                            <span class="stock">余票: ${concert.remainingStock || 0}</span>
+                        </div>
+                        <button class="btn btn-buy" onclick="buyTicket(${concert.id})" ${(concert.remainingStock || 0) <= 0 ? 'disabled' : ''}>
+                            立即购买
+                        </button>
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            console.error('加载演唱会失败', e);
+        }
+    }
+
+    async function buyTicket(concertId) {
+        const quantity = prompt('请输入购买数量:', '1');
+        if (!quantity) return;
+
+        try {
+            const res = await fetch('/api/tickets/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: parseInt(userId), concertId, quantity: parseInt(quantity) })
+            });
+            const data = await res.json();
+            if (data.code === 200) {
+                showMessage('购票成功！订单号：' + data.data.orderNo);
+                loadConcerts();
+                loadOrders();
+            } else {
+                showMessage(data.message, true);
+            }
+        } catch (e) {
+            showMessage('购票失败', true);
+        }
+    }
+
+    async function loadOrders() {
+        try {
+            const res = await fetch(`/api/tickets/orders/user/${userId}`);
+            const data = await res.json();
+            if (data.code === 200 && data.data.length > 0) {
+                const container = document.getElementById('orderList');
+                container.innerHTML = data.data.map(order => `
+                    <div class="order-item">
+                        <div>订单号: ${order.orderNo}</div>
+                        <div>数量: ${order.quantity} | 金额: ¥${order.totalAmount}</div>
+                        <div>状态: ${getStatusText(order.status)}</div>
+                        ${order.status === 0 ? `<button class="btn" style="margin-top:10px;padding:5px 10px;" onclick="cancelOrder(${order.id})">取消订单</button>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('orderList').innerHTML = '<div style="color:#999;">暂无订单</div>';
+            }
+        } catch (e) {
+            console.error('加载订单失败', e);
+        }
+    }
+
+    async function cancelOrder(orderId) {
+        if (!confirm('确定要取消这个订单吗？')) return;
+        try {
+            const res = await fetch(`/api/tickets/orders/${orderId}/cancel?userId=${userId}`, {
+                method: 'PUT'
+            });
+            const data = await res.json();
+            if (data.code === 200) {
+                showMessage('订单已取消');
+                loadOrders();
+                loadConcerts();
+            } else {
+                showMessage(data.message, true);
+            }
+        } catch (e) {
+            showMessage('取消失败', true);
+        }
+    }
+
+    function getStatusText(status) {
+        const statusMap = { 0: '待支付', 1: '已支付', 2: '已取消', 3: '已退款' };
+        return `<span class="status status-${status}">${statusMap[status] || '未知'}</span>`;
+    }
+
+    function showRegister() {
+        document.getElementById('loginArea').style.display = 'none';
+        document.getElementById('registerArea').style.display = 'block';
+    }
+
+    function showLogin() {
+        document.getElementById('registerArea').style.display = 'none';
+        document.getElementById('loginArea').style.display = 'block';
+    }
+
+    function logout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userId');
+        token = null;
+        userId = null;
+        document.getElementById('mainContent').style.display = 'none';
+        document.getElementById('userInfo').style.display = 'none';
+        document.getElementById('loginArea').style.display = 'block';
+        document.getElementById('loginUsername').value = '';
+        document.getElementById('loginPassword').value = '';
+    }
+
+    // 检查是否已登录
+    const savedToken = localStorage.getItem('token');
+    const savedUserId = localStorage.getItem('userId');
+    if (savedToken && savedUserId) {
+        token = savedToken;
+        userId = parseInt(savedUserId);
+        document.getElementById('loginArea').style.display = 'none';
+        document.getElementById('mainContent').style.display = 'block';
+        document.getElementById('userInfo').style.display = 'block';
+        document.getElementById('username').textContent = '用户';
+        loadConcerts();
+        loadOrders();
+    }
+</script>
+</body>
+</html>

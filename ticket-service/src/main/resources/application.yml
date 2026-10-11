@@ -26,6 +26,26 @@ spring:
     redis:
       host: localhost
       port: 6379
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    # 消息可靠性：publisher confirm + 无法路由时退回
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        # 重试耗尽后不 requeue，交给死信队列做库存回滚补偿
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2.0
+          max-interval: 10000
 
 mybatis:
   configuration:

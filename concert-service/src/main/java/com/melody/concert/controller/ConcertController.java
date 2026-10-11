@@ -34,8 +34,9 @@ public class ConcertController {
     @GetMapping("/decrease-stock")
     public Result<Boolean> decreaseStock(
             @RequestParam(name = "concertId") Long concertId,
-            @RequestParam(name = "quantity") Integer quantity) {
-        boolean result = concertService.decreaseStock(concertId, quantity);
+            @RequestParam(name = "quantity") Integer quantity,
+            @RequestParam(name = "bizNo", required = false) String bizNo) {
+        boolean result = concertService.decreaseStock(concertId, quantity, bizNo);
         return result ? Result.success(true) : Result.error(400, "库存不足");
     }
 

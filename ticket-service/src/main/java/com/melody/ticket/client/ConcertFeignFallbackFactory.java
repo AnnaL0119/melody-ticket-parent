@@ -25,7 +25,7 @@ public class ConcertFeignFallbackFactory implements FallbackFactory<ConcertFeign
             }
 
             @Override
-            public Result<Boolean> decreaseStock(Long concertId, Integer quantity) {
+            public Result<Boolean> decreaseStock(Long concertId, Integer quantity, String bizNo) {
                 return Result.error(503, "演唱会服务不可用，请稍后重试");
             }
 

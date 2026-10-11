@@ -21,15 +21,15 @@ LinMelodyTicket 是一个前后端分离的分布式票务系统，采用 Spring
 | 层级 | 技术 |
 |------|------|
 | **后端框架** | Spring Boot 3.2.5, Spring Cloud 2023.0.1, Spring Cloud Alibaba 2023.0.1.0 |
-| **服务注册/配置** | Nacos 2.3.2 |
+| **服务注册发现** | Nacos 2.3.2 |
 | **API 网关** | Spring Cloud Gateway |
 | **服务调用** | OpenFeign + Spring Cloud LoadBalancer |
-| **限流熔断** | Sentinel 1.8.6 |
+| **限流熔断** | Sentinel 1.8.6（网关侧秒杀接口 QPS 限流 + RT 熔断） |
 | **分布式事务** | Seata 2.0.0 |
 | **ORM** | MyBatis-Plus 3.5.7 |
 | **数据库** | MySQL 8.0 |
 | **缓存** | Redis 7 |
-| **消息队列** | RabbitMQ（秒杀异步处理） |
+| **消息队列** | RabbitMQ（秒杀异步处理：confirm + 重试 + 死信补偿） |
 | **链路追踪** | SkyWalking 9.7.0 |
 | **前端** | Vue 3.4 + Vite 5.2 + Element Plus 2.7 |
 | **认证** | JWT (HS256) + BCrypt |
@@ -51,8 +51,9 @@ melody-ticket-parent/
 ├── ticket-service/            # 票务服务 (port: 8083)
 │   └── controller/service/mapper/entity/feign/mq
 │   └── seckill.lua            # 秒杀 Redis Lua 脚本
+│   └── mq/OrderConsumer       # 消费幂等 + 死信补偿
 ├── web-client/                # API 网关 (port: 8080)
-│   └── Spring Cloud Gateway + Sentinel
+│   └── Spring Cloud Gateway + Sentinel（限流/熔断规则）
 ├── web-vue/                   # Vue 3 前端
 │   └── src/views/ (Login, Register, Home, ConcertDetail, UserOrders, AdminConcerts, MusicPlayer)
 ├── docker/                    # Docker 部署配置
@@ -64,6 +65,7 @@ melody-ticket-parent/
 │   ├── 01-create-databases.sql
 │   ├── 02-create-tables.sql
 │   └── 03-insert-test-data.sql
+├── docs/jmeter/               # 秒杀链路 JMeter 压测计划与验证手册
 ├── seata/                     # Seata 分布式事务配置
 └── skywalking/                # SkyWalking 链路追踪配置
 ```
@@ -237,6 +239,7 @@ bash start.sh down
 |------|------|------|
 | POST | `/tickets/orders` | 普通下单 |
 | POST | `/tickets/seckill` | 秒杀下单 |
+| POST | `/tickets/seckill/stock/{concertId}?totalStock=` | 秒杀库存预热（同步到 Redis） |
 | GET | `/tickets/orders/status/{orderNo}` | 查询订单状态 |
 | GET | `/tickets/orders/user/{userId}` | 用户订单列表 |
 | GET | `/tickets/orders/{orderId}` | 订单详情 |
@@ -311,11 +314,53 @@ bash start.sh down
 | `JwtUtilTest` | Token 签发与解析、密钥不匹配拒绝、篡改 Token 拒绝、过期 Token 拒绝、非法格式兜底 |
 | `PasswordEncoderTest` | BCrypt 加密/校验、随机盐、错误密码拒绝 |
 | `ResultTest` | 统一响应封装、全局异常处理器（业务异常状态码映射、未知异常 500 兜底） |
+| `OrderConsumerTest` | 消费幂等（重复消息跳过、唯一索引冲突视为成功）、扣库存失败触发重试 |
+| `SeckillDeadLetterConsumerTest` | 死信补偿：回滚 Redis 预扣库存并释放限购标记 |
 
 ```bash
 # 根目录执行，运行全部模块测试
 mvn test
 ```
+
+---
+
+## 🛡 高并发治理
+
+秒杀链路（`POST /api/tickets/seckill`）的四层保护，均有对应实现：
+
+| 层次 | 方案 | 代码位置 |
+|------|------|----------|
+| **入口限流** | 网关侧把秒杀 URL 定义为 API 资源，按 QPS 限流（默认 50/s，`sentinel.seckill.qps-limit` 可调），超限统一返回 429 | `web-client/.../SentinelFlowRuleConfig.java`、`GatewayBlockExceptionHandler` |
+| **熔断降级** | 1s 窗口内 RT>200ms 请求占比超 60% 时熔断 10s，快速失败避免线程堆积 | 同上 |
+| **原子防超卖** | Redis + Lua 脚本原子完成「用户限购校验 + 库存判断 + 扣减」，预扣成功才进入异步流程 | `ticket-service/.../seckill.lua` |
+| **异步削峰** | 预扣成功后写入 RabbitMQ，消费者异步扣减数据库库存并落单出票，接口只返回排队结果 | `TicketService#seckill`、`OrderConsumer` |
+
+消息可靠性与一致性保障：
+
+- **投递可靠**：publisher confirm（Broker 确认）+ mandatory 退回（无法路由时告警），消息携带订单号作 CorrelationData
+- **消费重试 + 死信**：消费失败自动重试 3 次，仍失败进入死信队列，补偿逻辑回滚 Redis 预扣库存、释放限购标记并打印 ERROR 告警供人工对账
+- **消费幂等**：Redis 消费标记（`seckill:done:{orderNo}`）拦截重复投递，数据库 `order_no` 唯一索引兜底
+- **跨服务扣库存幂等**：以订单号 `bizNo` 作为幂等键，消费重试/接口重试不会重复扣减数据库库存
+
+---
+
+## 📈 压测
+
+提供 JMeter 秒杀链路压测计划与验证手册：`docs/jmeter/`
+
+- 每个虚拟用户「独立注册 → 登录取 JWT → 秒杀下单」，模拟真实抢票
+- 自动分类统计：排队成功 / 被限流 / 售罄 / 重复下单
+- 附带无超卖核对方法（Redis 剩余库存、数据库剩余库存、订单数三者交叉验证）
+
+```bash
+# 压测前先预热秒杀库存
+curl -X POST "http://localhost:8080/api/tickets/seckill/stock/1?totalStock=100"
+
+# 200 并发压测
+jmeter -n -t docs/jmeter/seckill-load-test.jmx -Jthreads=200 -Jrampup=10 -JconcertId=1 -l result.jtl
+```
+
+详细步骤与结果解读见 `docs/jmeter/README.md`。
 
 ---
 
@@ -328,13 +373,15 @@ mvn test
 | `MYSQL_PASSWORD` | 各服务连接 MySQL 的密码 | 是 |
 | `JWT_SECRET` | JWT 签名密钥（HS256，≥32 字节） | 是 |
 | `NACOS_SERVER_ADDR` / `NACOS_USERNAME` / `NACOS_PASSWORD` | Nacos 注册中心连接信息 | 否（默认 localhost + nacos） |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` / `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` | RabbitMQ 连接信息 | 否（默认 localhost + guest） |
+| `SENTINEL_SECKILL_QPS_LIMIT` | 网关侧秒杀接口 QPS 上限 | 否（默认 50） |
 | `SEATA_ENABLED` | Seata 分布式事务开关 | 否（默认 false） |
 | `MYSQL_ROOT_PASSWORD` / `SW_DATA_SOURCE_PASSWORD` 等 | Docker Compose 部署所需变量 | Compose 部署时 |
 
 其他说明：
 
 1. **控制台**：Nacos `http://localhost:8848/nacos`、Sentinel `http://localhost:8010`，账号密码以各自中间件的部署配置为准，生产环境务必修改默认凭据
-2. **RabbitMQ**：本地需提前安装或通过 Docker 启动（秒杀异步链路依赖）
+2. **RabbitMQ**：本地需提前安装或通过 Docker 启动（秒杀异步链路依赖）；`seckill.order.queue` 启用死信参数后，若存在旧队列需先删除再启动
 3. **前端代理**：开发模式下 Vite 将 `/api` 代理到 `localhost:8080`（见 `vite.config.js`）
 4. **演示数据**：`docs/sql/03-insert-test-data.sql` 中的账号仅用于本地体验，部署前请重置密码
 

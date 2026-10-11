@@ -9,6 +9,7 @@ import com.melody.concert.dto.ConcertDTO;
 import com.melody.concert.entity.Concert;
 import com.melody.concert.mapper.ConcertMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConcertService extends ServiceImpl<ConcertMapper, Concert> {
@@ -85,14 +87,28 @@ public class ConcertService extends ServiceImpl<ConcertMapper, Concert> {
 
     /**
      * 扣减库存（供 ticket-service 调用）
+     * 幂等设计：以订单号 bizNo 作为幂等键，消费重试/网络重发时同一订单只扣减一次
      */
-    public boolean decreaseStock(Long concertId, Integer quantity) {
+    public boolean decreaseStock(Long concertId, Integer quantity, String bizNo) {
+        if (bizNo != null && !bizNo.isBlank()) {
+            Boolean firstDeduct = redisTemplate.opsForValue()
+                    .setIfAbsent("stock:deduct:" + bizNo, "1", 24, TimeUnit.HOURS);
+            if (!Boolean.TRUE.equals(firstDeduct)) {
+                log.info("重复扣减请求，幂等拦截: bizNo={}, concertId={}", bizNo, concertId);
+                return true;
+            }
+        }
+
         int result = concertMapper.decreaseStock(concertId, quantity);
         if (result > 0) {
             String cacheKey = "concert:stock:" + concertId;
             redisTemplate.opsForValue().decrement(cacheKey, quantity);
             redisTemplate.delete("concert:" + concertId);
             return true;
+        }
+        // 库存不足：释放幂等标记，允许后续合法请求重新扣减
+        if (bizNo != null && !bizNo.isBlank()) {
+            redisTemplate.delete("stock:deduct:" + bizNo);
         }
         return false;
     }

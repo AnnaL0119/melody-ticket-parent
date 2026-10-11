@@ -16,10 +16,14 @@ public interface ConcertFeignClient {
     @GetMapping("/concerts/{id}/stock")
     Result<Integer> getRemainingStock(@PathVariable("id") Long id);
 
+    /**
+     * 扣减库存，bizNo（订单号）作为幂等键：同一订单重复调用只扣一次
+     */
     @GetMapping("/concerts/decrease-stock")
     Result<Boolean> decreaseStock(
             @RequestParam("concertId") Long concertId,
-            @RequestParam("quantity") Integer quantity
+            @RequestParam("quantity") Integer quantity,
+            @RequestParam(value = "bizNo", required = false) String bizNo
     );
 
     @GetMapping("/concerts/increase-stock")

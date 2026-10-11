@@ -27,6 +27,17 @@ public class TicketController {
         return Result.success(ticketService.seckill(dto));
     }
 
+    /**
+     * 秒杀库存预热：将数据库库存同步到 Redis，供 Lua 脚本原子扣减
+     * 上架秒杀场次时由管理端调用（压测前也需要先调用）
+     */
+    @PostMapping("/seckill/stock/{concertId}")
+    public Result<String> initSeckillStock(@PathVariable("concertId") Long concertId,
+                                           @RequestParam("totalStock") Integer totalStock) {
+        ticketService.initSeckillStock(concertId, totalStock);
+        return Result.success("秒杀库存已预热", null);
+    }
+
     @GetMapping("/orders/status/{orderNo}")
     public Result<OrderVO> getOrderStatus(@PathVariable("orderNo") String orderNo) {
         OrderVO vo = ticketService.getOrderByOrderNo(orderNo);

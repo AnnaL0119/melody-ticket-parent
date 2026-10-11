@@ -6,6 +6,7 @@ import com.melody.common.Result;
 import com.melody.common.exception.BizException;
 import com.melody.ticket.client.ConcertFeignClient;
 import com.melody.ticket.config.RabbitMQConfig;
+import com.melody.ticket.config.SeckillKeys;
 import com.melody.ticket.dto.CreateOrderDTO;
 import com.melody.ticket.dto.OrderVO;
 import com.melody.ticket.entity.Order;
@@ -15,6 +16,7 @@ import com.melody.ticket.mapper.TicketMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.core.io.ClassPathResource;
@@ -44,8 +46,8 @@ public class TicketService {
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
 
-    private static final String SECKILL_STOCK_KEY_PREFIX = "seckill:stock:";
-    private static final String SECKILL_USER_KEY_PREFIX = "seckill:user:";
+    private static final String SECKILL_STOCK_KEY_PREFIX = SeckillKeys.STOCK_PREFIX;
+    private static final String SECKILL_USER_KEY_PREFIX = SeckillKeys.USER_PREFIX;
     private DefaultRedisScript<List> seckillScript;
 
     @PostConstruct
@@ -75,7 +77,7 @@ public class TicketService {
             throw new BizException(message);
         }
 
-        // 2. 发送到消息队列异步处理
+        // 2. 发送到消息队列异步处理（CorrelationData 携带订单号，配合 publisher confirm 记录投递结果）
         Map<String, Object> msg = new HashMap<>();
         msg.put("userId", dto.getUserId());
         msg.put("concertId", dto.getConcertId());
@@ -84,7 +86,7 @@ public class TicketService {
         msg.put("timestamp", System.currentTimeMillis());
 
         rabbitTemplate.convertAndSend(RabbitMQConfig.SECKILL_EXCHANGE,
-                RabbitMQConfig.SECKILL_ROUTING_KEY, msg);
+                RabbitMQConfig.SECKILL_ROUTING_KEY, msg, new CorrelationData(orderNo));
 
         log.info("秒杀订单已排队: orderNo={}, userId={}, concertId={}", orderNo, dto.getUserId(), dto.getConcertId());
 
@@ -123,6 +125,7 @@ public class TicketService {
     @Transactional(rollbackFor = Exception.class)
     public OrderVO createOrder(CreateOrderDTO dto) {
         log.info("创建订单: userId={}, concertId={}, quantity={}", dto.getUserId(), dto.getConcertId(), dto.getQuantity());
+        String orderNo = generateOrderNo();
 
         // 1. 获取演唱会信息
         Result<?> concertResult = concertFeignClient.getConcertById(dto.getConcertId());
@@ -145,8 +148,8 @@ public class TicketService {
             throw new BizException("库存不足");
         }
 
-        // 3. 扣减库存
-        Result<Boolean> decreaseResult = concertFeignClient.decreaseStock(dto.getConcertId(), dto.getQuantity());
+        // 3. 扣减库存（orderNo 作为幂等键，接口重试不会重复扣减）
+        Result<Boolean> decreaseResult = concertFeignClient.decreaseStock(dto.getConcertId(), dto.getQuantity(), orderNo);
         if (decreaseResult.getCode() == 503) {
             throw new BizException(503, "演唱会服务不可用，请稍后重试");
         }
@@ -159,7 +162,7 @@ public class TicketService {
 
         // 5. 创建订单
         Order order = new Order();
-        order.setOrderNo(generateOrderNo());
+        order.setOrderNo(orderNo);
         order.setUserId(dto.getUserId());
         order.setConcertId(dto.getConcertId());
         order.setQuantity(dto.getQuantity());
